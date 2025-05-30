@@ -1,4 +1,3 @@
-
 <?php
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
@@ -51,6 +50,9 @@ function sendVerificationEmail($recipientEmail, $code) {
 
     $mail = new PHPMailer(true);
 
+    // Debug logging
+    file_put_contents('mail_debug.txt', "Trying to send to $recipientEmail\n", FILE_APPEND);
+
     try {
         $mail->isSMTP();
         $mail->Host = 'smtp.gmail.com';
@@ -68,16 +70,25 @@ function sendVerificationEmail($recipientEmail, $code) {
         $mail->Body    = $message;
 
         $mail->send();
+        file_put_contents('mail_debug.txt', "Sent to $recipientEmail\n", FILE_APPEND);
     } catch (Exception $e) {
+        file_put_contents('mail_debug.txt', "Failed to send to $recipientEmail: {$mail->ErrorInfo}\n", FILE_APPEND);
         echo "Message could not be sent. Mailer Error: {$mail->ErrorInfo}";
     }
 }
 
+function hashVerificationCode($code) {
+    // Using a simple hash that's shorter but still secure for verification codes
+    $salt = $_ENV['HASH_SALT'] ?? 'xkcd_secure_salt_2024';
+    return hash('sha256', $code . $salt);
+}
 
 function verifyCode($email, $code, $filePath = VERIFY_CODES_FILE) {
     if (!file_exists($filePath)) return false;
     $data = json_decode(file_get_contents($filePath), true);
-    return isset($data[$email]) && $data[$email] === $code;
+    $salt = $_ENV['HASH_SALT'] ?? 'xkcd_secure_salt_2024';
+    $hashedCode = hash('sha256', $code . $salt);
+    return isset($data[$email]) && hash_equals($data[$email], $hashedCode);
 }
 
 function fetchAndFormatXKCDData() {

@@ -16,8 +16,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['send_code'])) {
         if ($email) {
             $code = generateVerificationCode();
+            $hashedCode = hashVerificationCode($code);
             $pending = json_decode(file_get_contents(UNSUBSCRIBE_CODES_FILE), true);
-            $pending[$email] = $code;
+            $pending[$email] = $hashedCode;
             file_put_contents(UNSUBSCRIBE_CODES_FILE, json_encode($pending));
             sendVerificationEmail($email, $code);
             $message = "📩 Unsubscribe verification code sent to <strong>$email</strong>.";
@@ -28,9 +29,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (isset($_POST['verify_code'])) {
         $code = isset($_POST['verification_code']) ? trim($_POST['verification_code']) : '';
         if ($email && $code) {
-            if (verifyCode($email, $code, UNSUBSCRIBE_CODES_FILE)) {
+            $salt = $_ENV['HASH_SALT'] ?? 'xkcd_secure_salt_2024';
+            $hashedCode = hash('sha256', $code . $salt);
+            $pending = json_decode(file_get_contents(UNSUBSCRIBE_CODES_FILE), true);
+            
+            if (isset($pending[$email]) && hash_equals($pending[$email], $hashedCode)) {
                 unsubscribeEmail($email);
-                $pending = json_decode(file_get_contents(UNSUBSCRIBE_CODES_FILE), true);
                 unset($pending[$email]);
                 file_put_contents(UNSUBSCRIBE_CODES_FILE, json_encode($pending));
                 $message = "✅ You have been unsubscribed successfully.";

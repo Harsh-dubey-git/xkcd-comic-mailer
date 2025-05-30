@@ -10,24 +10,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (isset($_POST['send_code'])) {
         $code = generateVerificationCode();
+        $hashedCode = hashVerificationCode($code);
 
-        // Check if email exists
-        $stmt = $conn->prepare("SELECT id FROM subscribers WHERE email = ?");
-        $stmt->bind_param("s", $email);
-        $stmt->execute();
-        $stmt->store_result();
-
-        if ($stmt->num_rows > 0) {
-            // Update code if exists
-            $update = $conn->prepare("UPDATE subscribers SET verification_code = ?, is_verified = 0 WHERE email = ?");
-            $update->bind_param("ss", $code, $email);
-            $update->execute();
-        } else {
-            // Insert new record
-            $insert = $conn->prepare("INSERT INTO subscribers (email, verification_code) VALUES (?, ?)");
-            $insert->bind_param("ss", $email, $code);
-            $insert->execute();
-        }
+        // Store verification code in a temporary file
+        $pending = json_decode(file_get_contents(VERIFY_CODES_FILE) ?: '{}', true);
+        $pending[$email] = $hashedCode;
+        file_put_contents(VERIFY_CODES_FILE, json_encode($pending));
 
         sendVerificationEmail($email, $code);
         $message = "Verification code sent to $email.";
@@ -36,18 +24,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     elseif (isset($_POST['verify_code'])) {
         $code = trim($_POST['verification_code'] ?? '');
-
-        // Check if code matches
-        $stmt = $conn->prepare("SELECT id FROM subscribers WHERE email = ? AND verification_code = ?");
-        $stmt->bind_param("ss", $email, $code);
-        $stmt->execute();
-        $stmt->store_result();
-
-        if ($stmt->num_rows > 0) {
-            // Mark as verified
-            $update = $conn->prepare("UPDATE subscribers SET is_verified = 1 WHERE email = ?");
-            $update->bind_param("s", $email);
-            $update->execute();
+        $salt = $_ENV['HASH_SALT'] ?? 'xkcd_secure_salt_2024';
+        $hashedCode = hash('sha256', $code . $salt);
+        
+        // Check verification code from temporary file
+        $pending = json_decode(file_get_contents(VERIFY_CODES_FILE) ?: '{}', true);
+        
+        if (isset($pending[$email]) && hash_equals($pending[$email], $hashedCode)) {
+            // Store in database with verification code after successful verification
+            $stmt = $conn->prepare("INSERT INTO subscribers (email, verification_code, is_verified) VALUES (?, ?, 1)");
+            $stmt->bind_param("ss", $email, $hashedCode);
+            $stmt->execute();
+            
+            // Remove from pending verifications
+            unset($pending[$email]);
+            file_put_contents(VERIFY_CODES_FILE, json_encode($pending));
+            
             $message = "✅ Email verified and registered successfully.";
         } else {
             $message = "❌ Invalid verification code.";
@@ -62,27 +54,171 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <title>XKCD Subscription</title>
-    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Bangers&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        comic: ['Bangers', 'cursive']
+                    },
+                    colors: {
+                        primary: {
+                            DEFAULT: '#facc15', // comic yellow
+                            dark: '#fbbf24',
+                        },
+                        panel: '#fff',
+                        border: '#222',
+                        accent: '#ef4444', // red
+                        blue: '#3b82f6',
+                    },
+                    boxShadow: {
+                        comic: '8px 8px 0 0 #222',
+                    },
+                    backgroundImage: {
+                        halftone: "radial-gradient(circle at 20% 20%, #facc15 1px, transparent 1px), radial-gradient(circle at 80% 80%, #facc15 1px, transparent 1px)",
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #facc15;
+            background-image: repeating-radial-gradient(circle at 0 0, #fcd34d, #facc15 20px), repeating-radial-gradient(circle at 100% 100%, #fde68a, #facc15 30px);
+            background-size: 60px 60px, 80px 80px;
+        }
+        .comic-border {
+            border: 4px solid #222;
+            box-shadow: 6px px 0 0 #222;
+        }
+    </style>
 </head>
-<body>
-    <div class="subscription-card">
-        <h1>XKCD Subscription</h1>
-        <?php if ($message): ?>
-            <div class="message"><?= htmlspecialchars($message) ?></div>
-        <?php endif; ?>
+<body class="min-h-screen flex flex-col items-center justify-center relative overflow-x-hidden">
+    <!-- Comic-style Navbar -->
+    <nav class="w-full flex items-center justify-between px-8 py-4 bg-white/90 comic-border font-comic text-2xl tracking-wider uppercase z-10 relative">
+        <div class="flex items-center gap-3">
+            <img src="images\logo.png" alt="Comic Icon" class="w-12 h-13" />
+            <span class="font-comic text-3xl text-accent drop-shadow">XKCD Comics</span>
+        </div>
+        <ul class="flex gap-8 text-lg font-comic">
+            <li><a href="#" class="hover:text-blue-500 transition">Home</a></li>
+            <li><a href="#" class="hover:text-blue-500 transition">About</a></li>
+            <li><a href="#" class="hover:text-blue-500 transition">Contact</a></li>
+        </ul>
+    </nav>
 
-        <?php if ($step === 1): ?>
-            <form method="POST">
-                <input type="email" name="email" placeholder="Enter your email" required>
-                <button type="submit" name="send_code">Send Verification Code</button>
-            </form>
-        <?php else: ?>
-            <form method="POST">
-                <input type="email" name="email" value="<?= htmlspecialchars($email ?? '') ?>" required>
-                <input type="text" name="verification_code" maxlength="6" placeholder="Enter verification code" required>
-                <button type="submit" name="verify_code">Verify & Subscribe</button>
-            </form>
-        <?php endif; ?>
+    <!-- Comic Panel Main Card -->
+    <div class="comic-border bg-panel max-w-3xl w-full mt-12 mb-8 p-0 flex flex-col md:flex-row items-center relative overflow-hidden shadow-comic">
+        <!-- Comic Character -->
+        <div class="flex-1 flex flex-col items-center justify-center p-8">
+            <img src="images\comic.png" alt="Comic Character" class="w-60 h-65 drop-shadow-2xl" />
+        </div>
+        <!-- Comic Speech Bubble/Panel -->
+        <div class="flex-1 p-8 flex flex-col items-center justify-center">
+            <h1 class="font-comic text-4xl md:text-5xl text-accent mb-2 drop-shadow-lg tracking-widest">New Comic Launching!</h1>
+            <p class="font-comic text-xl text-blue-600 mb-2">Subscribe for daily XKCD comics!</p>
+            <p class="text-gray-700 font-semibold mb-4">Get the latest XKCD comic delivered to your inbox every day. Enter your email to join the fun!</p>
+            <?php if ($message): ?>
+                <div class="mb-4 p-3 rounded-lg bg-yellow-100 border-2 border-accent text-accent font-comic text-lg shadow-comic">
+                    <?= htmlspecialchars($message) ?>
+                </div>
+            <?php endif; ?>
+            <?php if ($step === 1): ?>
+                <form method="POST" onsubmit="return showSpinner(this)" class="w-full flex flex-col gap-3 items-center">
+                    <input type="email" name="email" placeholder="Enter your email" required
+                        class="w-full px-4 py-3 rounded-lg border-2 border-accent font-comic text-lg focus:ring-2 focus:ring-blue-400 transition comic-border">
+                    <button type="submit" name="send_code"
+                        class="relative w-full bg-accent text-white font-comic text-xl py-3 rounded-lg comic-border shadow-comic hover:bg-blue-500 hover:text-yellow-100 transition flex items-center justify-center gap-2">
+                        <span class="verify-text">Send Verification Code</span>
+                        <div class="verify-spinner hidden w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin-slow"></div>
+                    </button>
+                </form>
+                <div id="sendComicsMessage" class="mt-4 p-3 rounded-lg font-comic"></div>
+            <?php else: ?>
+                <form method="POST" onsubmit="return showSpinner(this)" class="w-full flex flex-col gap-3 items-center">
+                    <input type="email" name="email" value="<?= htmlspecialchars($email ?? '') ?>" required
+                        class="w-full px-4 py-3 rounded-lg border-2 border-accent font-comic text-lg focus:ring-2 focus:ring-blue-400 transition comic-border">
+                    <input type="text" name="verification_code" maxlength="6" placeholder="Enter verification code" required
+                        class="w-full px-4 py-3 rounded-lg border-2 border-accent font-comic text-lg focus:ring-2 focus:ring-blue-400 transition comic-border">
+                    <button type="submit" name="verify_code"
+                        class="relative w-full bg-accent text-white font-comic text-xl py-3 rounded-lg comic-border shadow-comic hover:bg-blue-500 hover:text-yellow-100 transition flex items-center justify-center gap-2">
+                        <span class="verify-text">Verify & Subscribe</span>
+                        <div class="verify-spinner hidden w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin-slow"></div>
+                    </button>
+                </form>
+            <?php endif; ?>
+        </div>
     </div>
+
+    <!-- Comic Action/CTA at Top -->
+    <div class="fixed top-4 right-8 z-50">
+        <button id="sendComicsBtn" class="bg-accent text-white font-comic text-lg px-6 py-3 rounded-lg comic-border shadow-comic hover:bg-blue-500 hover:text-yellow-100 transition flex items-center gap-2 min-w-[120px] disabled:bg-gray-400 disabled:cursor-not-allowed disabled:shadow-none">
+            <span class="send-comics-text">Send Comics to All Subscribers</span>
+            <div class="send-comics-spinner hidden w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin-slow"></div>
+        </button>
+    </div>
+
+    <script>
+        // Dark/Light Theme Toggle
+        function toggleTheme() {
+            document.documentElement.classList.toggle('dark');
+            localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+        }
+
+        // Load saved theme
+        (function () {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            }
+        })();
+
+        // Show Spinner on Submit
+        function showSpinner(form) {
+            const button = form.querySelector('button[type="submit"]');
+            const spinner = button.querySelector('.verify-spinner');
+            const text = button.querySelector('.verify-text');
+            if (spinner) spinner.classList.remove('hidden');
+            if (text) text.classList.add('opacity-50');
+            button.disabled = true;
+            form.classList.add('opacity-50', 'pointer-events-none');
+            return true;
+        }
+
+        // AJAX Send Comics Spinner
+        document.querySelectorAll('#sendComicsBtn').forEach(function(btn) {
+            btn.addEventListener('click', async function () {
+                const messageDiv = document.getElementById('sendComicsMessage');
+                const button = this;
+                const spinner = button.querySelector('.send-comics-spinner');
+                const text = button.querySelector('.send-comics-text');
+                try {
+                    button.disabled = true;
+                    if (spinner) spinner.classList.remove('hidden');
+                    if (text) text.classList.add('opacity-50');
+                    if (messageDiv) messageDiv.textContent = '';
+                    const response = await fetch('send_comics.php', { method: 'POST' });
+                    const result = await response.json();
+                    if (messageDiv) {
+                        messageDiv.textContent = result.message;
+                        messageDiv.className = 'mt-4 p-3 rounded-lg font-comic ' + 
+                            (result.success ? 'bg-green-100 border-2 border-green-400 text-green-800' : 'bg-red-100 border-2 border-red-400 text-red-800');
+                    }
+                } catch (error) {
+                    if (messageDiv) {
+                        messageDiv.textContent = 'Error: ' + error.message;
+                        messageDiv.className = 'mt-4 p-3 rounded-lg font-comic bg-red-100 border-2 border-red-400 text-red-800';
+                    }
+                } finally {
+                    button.disabled = false;
+                    if (spinner) spinner.classList.add('hidden');
+                    if (text) text.classList.remove('opacity-50');
+                }
+            });
+        });
+    </script>
 </body>
 </html>
