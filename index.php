@@ -2,6 +2,10 @@
 require_once 'connect.php';
 require_once 'functions.php';
 
+if (!file_exists(VERIFY_CODES_FILE)) {
+    file_put_contents(VERIFY_CODES_FILE, '{}');
+}
+
 $message = '';
 $step = 1;
 
@@ -62,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             theme: {
                 extend: {
                     fontFamily: {
-                        comic: ['Bangers', 'cursive']
+                        comic: ['cursive','Bangers',]
                     },
                     colors: {
                         primary: {
@@ -96,22 +100,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     </style>
 </head>
-<body class="min-h-screen flex flex-col items-center justify-center relative overflow-x-hidden">
+<body class="min-h-screen flex flex-col  items-center relative overflow-x-hidden">
+    <!-- Notification Toast -->
+    <div id="notification" class="fixed top-6 right-6 z-50 hidden bg-white p-4 rounded-lg shadow-lg border-2 border-accent font-comic text-lg transform transition-all duration-300 ease-in-out"></div>
     <!-- Comic-style Navbar -->
     <nav class="w-full flex items-center justify-between px-8 py-4 bg-white/90 comic-border font-comic text-2xl tracking-wider uppercase z-10 relative">
         <div class="flex items-center gap-3">
             <img src="images\logo.png" alt="Comic Icon" class="w-12 h-13" />
             <span class="font-comic text-3xl text-accent drop-shadow">XKCD Comics</span>
         </div>
-        <ul class="flex gap-8 text-lg font-comic">
-            <li><a href="#" class="hover:text-blue-500 transition">Home</a></li>
-            <li><a href="#" class="hover:text-blue-500 transition">About</a></li>
-            <li><a href="#" class="hover:text-blue-500 transition">Contact</a></li>
-        </ul>
+        <div class="flex justify-end z-50">
+        <button id="sendComicsBtn" class="bg-accent text-white font-comic text-lg px-6 py-3 rounded-lg comic-border shadow-comic hover:bg-blue-500 hover:text-yellow-100 transition flex items-center gap-2 min-w-[120px] disabled:bg-gray-400 disabled:cursor-not-allowed disabled:shadow-none">
+            <span class="send-comics-text">Send Comics to All Subscribers</span>
+            <div class="send-comics-spinner hidden w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin-slow"></div>
+        </button>
+    </div>
     </nav>
 
     <!-- Comic Panel Main Card -->
-    <div class="comic-border bg-panel max-w-3xl w-full mt-12 mb-8 p-0 flex flex-col md:flex-row items-center relative overflow-hidden shadow-comic">
+    <div class="comic-border bg-panel max-w-4xl w-full max-h-screen mt-4 p-0 flex flex-col md:flex-row items-center relative overflow-hidden shadow-comic">
         <!-- Comic Character -->
         <div class="flex-1 flex flex-col items-center justify-center p-8">
             <img src="images\comic.png" alt="Comic Character" class="w-60 h-65 drop-shadow-2xl" />
@@ -121,13 +128,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <h1 class="font-comic text-4xl md:text-5xl text-accent mb-2 drop-shadow-lg tracking-widest">New Comic Launching!</h1>
             <p class="font-comic text-xl text-blue-600 mb-2">Subscribe for daily XKCD comics!</p>
             <p class="text-gray-700 font-semibold mb-4">Get the latest XKCD comic delivered to your inbox every day. Enter your email to join the fun!</p>
-            <?php if ($message): ?>
-                <div class="mb-4 p-3 rounded-lg bg-yellow-100 border-2 border-accent text-accent font-comic text-lg shadow-comic">
-                    <?= htmlspecialchars($message) ?>
-                </div>
-            <?php endif; ?>
             <?php if ($step === 1): ?>
-                <form method="POST" onsubmit="return showSpinner(this)" class="w-full flex flex-col gap-3 items-center">
+                <form method="POST" class="w-full flex flex-col gap-3 items-center">
                     <input type="email" name="email" placeholder="Enter your email" required
                         class="w-full px-4 py-3 rounded-lg border-2 border-accent font-comic text-lg focus:ring-2 focus:ring-blue-400 transition comic-border">
                     <button type="submit" name="send_code"
@@ -138,7 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </form>
                 <div id="sendComicsMessage" class="mt-4 p-3 rounded-lg font-comic"></div>
             <?php else: ?>
-                <form method="POST" onsubmit="return showSpinner(this)" class="w-full flex flex-col gap-3 items-center">
+                <form method="POST" class="w-full flex flex-col gap-3 items-center">
                     <input type="email" name="email" value="<?= htmlspecialchars($email ?? '') ?>" required
                         class="w-full px-4 py-3 rounded-lg border-2 border-accent font-comic text-lg focus:ring-2 focus:ring-blue-400 transition comic-border">
                     <input type="text" name="verification_code" maxlength="6" placeholder="Enter verification code" required
@@ -151,14 +153,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </form>
             <?php endif; ?>
         </div>
-    </div>
-
-    <!-- Comic Action/CTA at Top -->
-    <div class="fixed top-4 right-8 z-50">
-        <button id="sendComicsBtn" class="bg-accent text-white font-comic text-lg px-6 py-3 rounded-lg comic-border shadow-comic hover:bg-blue-500 hover:text-yellow-100 transition flex items-center gap-2 min-w-[120px] disabled:bg-gray-400 disabled:cursor-not-allowed disabled:shadow-none">
-            <span class="send-comics-text">Send Comics to All Subscribers</span>
-            <div class="send-comics-spinner hidden w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin-slow"></div>
-        </button>
     </div>
 
     <script>
@@ -175,18 +169,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 document.documentElement.classList.add('dark');
             }
         })();
-
-        // Show Spinner on Submit
-        function showSpinner(form) {
-            const button = form.querySelector('button[type="submit"]');
-            const spinner = button.querySelector('.verify-spinner');
-            const text = button.querySelector('.verify-text');
-            if (spinner) spinner.classList.remove('hidden');
-            if (text) text.classList.add('opacity-50');
-            button.disabled = true;
-            form.classList.add('opacity-50', 'pointer-events-none');
-            return true;
-        }
 
         // AJAX Send Comics Spinner
         document.querySelectorAll('#sendComicsBtn').forEach(function(btn) {
@@ -220,5 +202,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             });
         });
     </script>
+    <?php if ($message): ?>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const notification = document.getElementById('notification');
+            notification.textContent = <?= json_encode($message) ?>;
+            notification.className = "fixed top-6 right-6 z-50 bg-white p-4 rounded-lg shadow-lg border-2 border-accent font-comic text-lg transform transition-all duration-300 ease-in-out";
+            notification.style.display = "block";
+            
+            // Add fade-out animation
+            setTimeout(() => {
+                notification.style.opacity = "0";
+                notification.style.transform = "translateY(-20px)";
+                setTimeout(() => {
+                    notification.style.display = "none";
+                    notification.style.opacity = "1";
+                    notification.style.transform = "translateY(0)";
+                }, 300);
+            }, 3000);
+        });
+    </script>
+    <?php endif; ?>
 </body>
 </html>

@@ -50,9 +50,6 @@ function sendVerificationEmail($recipientEmail, $code) {
 
     $mail = new PHPMailer(true);
 
-    // Debug logging
-    file_put_contents('mail_debug.txt', "Trying to send to $recipientEmail\n", FILE_APPEND);
-
     try {
         $mail->isSMTP();
         $mail->Host = 'smtp.gmail.com';
@@ -70,9 +67,7 @@ function sendVerificationEmail($recipientEmail, $code) {
         $mail->Body    = $message;
 
         $mail->send();
-        file_put_contents('mail_debug.txt', "Sent to $recipientEmail\n", FILE_APPEND);
     } catch (Exception $e) {
-        file_put_contents('mail_debug.txt', "Failed to send to $recipientEmail: {$mail->ErrorInfo}\n", FILE_APPEND);
         echo "Message could not be sent. Mailer Error: {$mail->ErrorInfo}";
     }
 }
