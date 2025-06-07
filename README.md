@@ -41,5 +41,6 @@ A full-featured PHP project to manage email subscriptions and send daily XKCD co
 
 [![Watch the demo](https://img.youtube.com/vi/e018NNg7PWs/0.jpg)](https://youtu.be/e018NNg7PWs)
 
+![Comic Emailer Preview](screenshots/comic_emailer.gif)
 
 
